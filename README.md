@@ -1,56 +1,87 @@
-# Welcome to your Expo app 👋
+# ContextCam
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+**Point your phone at medicine labels, contracts or formulas & get instant contextual analysis.**
 
-## Get started
+## What It Does
 
-1. Install dependencies
+ContextCam automatically detects the type of content you're scanning and provides mode-specific analysis:
 
-   ```bash
-   npm install
-   ```
+- **Health Mode:** Extract ingredients, understand what they do, see key details
+- **Legal Mode:** Understand obligations, identify risky clauses, get plain English explanations
+- **Academic Mode:** Learn concepts, step-by-step breakdowns, real-world examples
 
-2. Start the app
+## How It Works
 
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```
+Capture → OCR Extract →  Auto-Detect Mode →  AI Analysis →  Save History
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+1. **Camera:** Capture image of label/document/formula
+2. **OCR:** Extract text using Google ML Kit (on-device, instant)
+3. **Mode Detection:** Keyword matching determines Health/Legal/Academic
+4. **Analysis:** Gemini API provides contextual insights
+5. **History:** Save results locally (30-day auto-delete with warning)
 
-### Other setup steps
+## Tech Stack
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+| Layer | Tech |
+|-------|------|
+| **Frontend** | React Native (Expo) |
+| **Camera** | Expo Camera | 
+| **OCR** | Firebase ML Kit |
+| **AI Analysis** | Gemini API |
+| **Storage** | AsyncStorage | 
 
-## Learn more
+## Setup
 
-To learn more about developing your project with Expo, look at the following resources:
+### Prerequisites
+- Node.js 18+
+- Expo CLI
+- Gemini API key (free)
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+### Installation
 
-## Join the community
+```bash
+# Install dependencies
+npm install
 
-Join our community of developers creating universal apps.
+# Create .env file
+echo "EXPO_PUBLIC_GEMINI_API_KEY=your_key_here" > .env
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+# Start dev server
+npm start
+```
+
+## Running
+
+```bash
+# Start development server
+npm start
+
+# On phone: Scan QR code with Expo Go app
+# On web: Press 'w' in terminal
+```
+
+## Key Features
+
+ **Auto-Mode Detection** — Identifies Health/Legal/Academic automatically  
+ **Offline OCR** — Text extraction works without internet  
+ **Smart Fallback** — Asks AI if uncertain about mode  
+ **30-Day History** — Auto-delete with warning before deletion  
+ **PDF Export** — Save results permanently before deletion  
+
+## Development Notes
+
+### Mode Detection Logic
+- **Health:** mg, vitamin, ingredient, tablet, dose, medicine, drug, supplement, protein, nutrient, capsule
+- **Legal:** clause, agreement, contract, shall, hereby, party, obligation, liability, breach, plaintiff, defendant
+- **Academic:** formula, equation, integral, theorem, variable, coefficient, function, derivative, proof, algorithm
+
+## Limitations
+
+- ⚠️ OCR accuracy depends on image quality (blurry images = poor results)
+- ⚠️ Gemini analysis limited to 60 requests/min (free tier)
+- ⚠️ No cross-device sync (data local to phone only)
+- ⚠️ Text-only analysis (images not sent to Gemini for privacy)
+
+Built with ❤️ by [Aaliya Hussain](https://www.linkedin.com/in/aaliya-hussain-92194b325/)
