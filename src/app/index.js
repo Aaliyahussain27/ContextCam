@@ -1,4 +1,5 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useRouter } from 'expo-router';
 import React, { useRef, useState } from 'react';
 import { ActivityIndicator, Button, Image, StyleSheet, Text, View } from 'react-native';
 import { COLORS } from '../config/colors';
@@ -10,6 +11,7 @@ export default function CameraScreen({ navigation }) {
   const [photo, setPhoto] = useState(null);
   const [processing, setProcessing] = useState(false);
   const cameraRef = useRef(null);
+  const router = useRouter();
 
   React.useEffect(() => {
     if (!permission?.granted) {
@@ -52,8 +54,10 @@ export default function CameraScreen({ navigation }) {
       }
 
       // Step 3: Navigate to result screen
-      navigation.navigate('Result', { result: scanResult });
-
+    router.push({
+      pathname: '/result',
+      params: { result: JSON.stringify(scanResult) }
+    });
       // Reset camera
       setPhoto(null);
 

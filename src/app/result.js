@@ -1,13 +1,16 @@
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { COLORS } from '../config/colors';
 import { processScan } from '../utils/processingService';
 import { saveToHistory } from '../utils/storageService';
 
-import { COLORS } from '../config/colors';
+export default function ResultScreen() {
+  const router = useRouter();
+  const { result: resultParam } = useLocalSearchParams();
+  const initialResult = resultParam ? JSON.parse(resultParam) : null;
 
-export default function ResultScreen({ route, navigation }) {
-  // route.params = { success, mode, analysis, extractedText, timestamp }
-  const [result, setResult] = useState(route.params?.result);
+  const [result, setResult] = useState(initialResult);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showModeOptions, setShowModeOptions] = useState(false);
@@ -48,7 +51,7 @@ export default function ResultScreen({ route, navigation }) {
 
   // Navigate back to camera
   const handleScanAgain = () => {
-    navigation.navigate('Camera');
+    router.push('/');
   };
 
   if (!result || !result.success) {
