@@ -36,7 +36,7 @@ Capture → OCR Extract →  Auto-Detect Mode →  AI Analysis →  Save History
 
 ### Prerequisites
 - Node.js 18+
-- Expo CLI
+- Expo CLI / Expo dependency via npm
 - Gemini API key (free)
 
 ### Installation
@@ -47,10 +47,31 @@ npm install
 
 # Create .env file
 echo "EXPO_PUBLIC_GEMINI_API_KEY=your_key_here" > .env
+```
 
-# Start dev server
+### Start the app
+
+For normal local testing:
+
+```bash
 npm start
 ```
+
+For phone testing, especially when the app is not reachable over LAN, use a tunnel:
+
+```bash
+npx expo start --tunnel
+```
+
+This uses ngrok under the hood, so it works better for Expo Go on a real phone.
+
+If you want to use ngrok directly as well, run:
+
+```bash
+npx ngrok http 8081
+```
+
+Then open the forwarded URL from ngrok in your browser or use it with the Expo dev server setup as needed.
 
 ## Running
 
@@ -58,8 +79,9 @@ npm start
 # Start development server
 npm start
 
-# On phone: Scan QR code with Expo Go app
-# On web: Press 'w' in terminal
+# For a phone: use the QR code from Expo Go
+# For a tunnel-enabled phone setup: run npx expo start --tunnel
+# On web: press 'w' in the terminal
 ```
 
 ## Key Features
