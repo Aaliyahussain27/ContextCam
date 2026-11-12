@@ -1,37 +1,59 @@
-import React from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect } from 'expo-router';
+import React, { useCallback, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { COLORS, SPACING, TYPOGRAPHY } from '../config/colors';
 import { clearAllHistory, getHistoryCount } from '../utils/storageService';
+import { showToast } from '../utils/toast';
+import { confirmAction } from '../utils/confirm';
+import { STORAGE_STATUS } from '../utils/storageErrors';
 
 export default function SettingsScreen() {
-  const [scanCount, setScanCount] = React.useState(0);
+  const [scanCount, setScanCount] = useState(0);
+  const [countError, setCountError] = useState(false);
 
-  React.useEffect(() => {
-    loadCount();
+  const loadCount = useCallback(async () => {
+    try {
+      const result = await getHistoryCount();
+      if (result.status === STORAGE_STATUS.ERROR) {
+        setCountError(true);
+        setScanCount(0);
+      } else {
+        setCountError(false);
+        setScanCount(result.count);
+      }
+    } catch (error) {
+      if (__DEV__) console.warn('Failed to load count:', error);
+      setCountError(true);
+    }
   }, []);
 
-  const loadCount = async () => {
-    const count = await getHistoryCount();
-    setScanCount(count);
-  };
+  // Reload count whenever the Settings tab gains focus
+  useFocusEffect(
+    useCallback(() => {
+      loadCount();
+    }, [loadCount])
+  );
 
-  const handleClearHistory = () => {
-    Alert.alert(
+  const handleClearHistory = async () => {
+    if (!countError && scanCount === 0) {
+      showToast('History is already empty');
+      return;
+    }
+
+    const confirmed = await confirmAction(
       'Clear All History',
-      'This will delete all saved scans. Cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clear All',
-          onPress: async () => {
-            await clearAllHistory();
-            setScanCount(0);
-            Alert.alert('Done', 'All history cleared');
-          },
-          style: 'destructive',
-        },
-      ]
+      'This will delete all saved scans permanently. This action cannot be undone.',
+      { confirmText: 'Clear All', destructive: true }
     );
+
+    if (confirmed) {
+      const success = await clearAllHistory();
+      if (success) {
+        setScanCount(0);
+        setCountError(false);
+        showToast('All history cleared');
+      }
+    }
   };
 
   return (
@@ -48,7 +70,7 @@ export default function SettingsScreen() {
         </View>
         <View style={styles.infoRow}>
           <Text style={styles.label}>Total Scans</Text>
-          <Text style={styles.value}>{scanCount}</Text>
+          <Text style={styles.value}>{countError ? '?' : scanCount}</Text>
         </View>
       </View>
 
@@ -65,10 +87,10 @@ export default function SettingsScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>About</Text>
         <Text style={styles.description}>
-          ContextCam automatically detects the type of content you're scanning and provides mode-specific analysis.
+          ContextCam automatically detects the domain context (Health, Legal, Academic) of any document you scan and produces structured, human-readable insights.
         </Text>
         <Text style={styles.description}>
-          Built with React Native, Google ML Kit, and Gemini API.
+          Powered by React Native, Google ML Kit, and Gemini AI.
         </Text>
       </View>
     </View>
@@ -81,18 +103,15 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
     padding: SPACING.lg,
   },
-
   section: {
     marginBottom: SPACING.xl,
   },
-
   sectionTitle: {
     fontSize: TYPOGRAPHY.subtitleSize,
     fontWeight: TYPOGRAPHY.fontWeightBold,
     color: COLORS.primary,
     marginBottom: SPACING.md,
   },
-
   infoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -100,18 +119,15 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
-
   label: {
     fontSize: TYPOGRAPHY.bodySize,
     color: COLORS.text,
   },
-
   value: {
     fontSize: TYPOGRAPHY.bodySize,
     fontWeight: TYPOGRAPHY.fontWeightBold,
     color: COLORS.primary,
   },
-
   dangerButton: {
     backgroundColor: '#ffebee',
     borderWidth: 1,
@@ -120,17 +136,15 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
   },
-
   dangerText: {
     color: COLORS.accent,
     fontWeight: TYPOGRAPHY.fontWeightBold,
     fontSize: TYPOGRAPHY.bodySize,
   },
-
   description: {
     fontSize: TYPOGRAPHY.smallSize,
     color: COLORS.textLight,
-    lineHeight: 1.6,
+    lineHeight: 20,
     marginBottom: SPACING.md,
   },
 });

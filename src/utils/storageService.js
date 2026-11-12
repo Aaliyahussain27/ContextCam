@@ -1,169 +1,292 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Alert } from 'react-native';
+import { showToast } from './toast';
+import { confirmAction } from './confirm';
+import { StorageError, STORAGE_STATUS } from './storageErrors';
 
 const HISTORY_KEY = 'contextcam_history';
 const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000; // milliseconds
 const WARNING_BEFORE_DAYS = 26 * 24 * 60 * 60 * 1000; // Warn at 26 days, delete at 30
 
-// Save scan to history
+/**
+ * Validates that a date string is a parseable ISO date.
+ */
+function isValidISODate(value) {
+  if (typeof value !== 'string') return false;
+  const ts = Date.parse(value);
+  return !isNaN(ts);
+}
+
+/**
+ * Validates an individual scan record.
+ * Must have an `id` (string) and at least one valid date field.
+ */
+function isValidRecord(record) {
+  if (!record || typeof record !== 'object') return false;
+  if (typeof record.id !== 'string' || record.id.length === 0) return false;
+  const hasValidDate =
+    isValidISODate(record.savedAt) || isValidISODate(record.timestamp);
+  return hasValidDate;
+}
+
+/**
+ * Safely parses JSON string or returns fallback.
+ * Discards individual malformed records but keeps valid ones.
+ */
+function safeParseJson(jsonString, fallback = []) {
+  if (!jsonString) return fallback;
+  try {
+    const parsed = JSON.parse(jsonString);
+    if (!Array.isArray(parsed)) return fallback;
+
+    // Validate each record individually
+    const valid = parsed.filter((record) => {
+      const ok = isValidRecord(record);
+      if (!ok && __DEV__) {
+        console.warn('[StorageService] Discarding malformed record:', record);
+      }
+      return ok;
+    });
+
+    return valid;
+  } catch (error) {
+    if (__DEV__) {
+      console.warn('[StorageService] Corrupted storage data, resetting to fallback:', error);
+    }
+    return fallback;
+  }
+}
+
+/**
+ * Saves a new scan result to local AsyncStorage history.
+ * @param {object} scan - The scan object to persist.
+ * @returns {Promise<boolean>}
+ */
 export async function saveToHistory(scan) {
+  if (!scan) return false;
+
   try {
     const existingHistory = await AsyncStorage.getItem(HISTORY_KEY);
-    const history = existingHistory ? JSON.parse(existingHistory) : [];
-    
+    const history = safeParseJson(existingHistory, []);
+
     const newScan = {
-      id: Date.now().toString(),
-      ...scan,
+      id: `${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+      mode: scan.mode || 'HEALTH',
+      extractedText: scan.extractedText || '',
+      analysis: scan.analysis || '',
       savedAt: new Date().toISOString(),
-      backedUp: false, // Track if user backed up as PDF
+      timestamp: scan.timestamp || new Date().toISOString(),
+      backedUp: false,
     };
-    
+
     history.push(newScan);
     await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(history));
-    
-    console.log('Scan saved:', newScan.id);
+
+    showToast('Saved to history');
     return true;
   } catch (error) {
-    console.error('Error saving to history:', error);
+    if (__DEV__) {
+      console.error('[StorageService] Error saving to history:', error);
+    }
+    showToast('Failed to save to history');
     return false;
   }
 }
 
-// Get all scans from history
+/**
+ * Retrieves all stored scans sorted newest first.
+ * @returns {Promise<{ status: 'ok'|'empty'|'error', scans: Array, error?: string }>}
+ */
 export async function getHistory() {
   try {
-    const history = await AsyncStorage.getItem(HISTORY_KEY);
-    const scans = history ? JSON.parse(history) : [];
-    
-    // Sort by savedAt (newest first)
-    return scans.sort((a, b) => 
-      new Date(b.savedAt) - new Date(a.savedAt)
-    );
+    const existingHistory = await AsyncStorage.getItem(HISTORY_KEY);
+    const scans = safeParseJson(existingHistory, []);
+
+    if (scans.length === 0) {
+      return { status: STORAGE_STATUS.EMPTY, scans: [] };
+    }
+
+    const sorted = scans.sort((a, b) => {
+      const timeA = new Date(a.savedAt || a.timestamp || 0).getTime();
+      const timeB = new Date(b.savedAt || b.timestamp || 0).getTime();
+      return timeB - timeA;
+    });
+
+    return { status: STORAGE_STATUS.OK, scans: sorted };
   } catch (error) {
-    console.error('Error loading history:', error);
-    return [];
+    if (__DEV__) {
+      console.error('[StorageService] Error loading history:', error);
+    }
+    return {
+      status: STORAGE_STATUS.ERROR,
+      scans: [],
+      error: error.message || 'Failed to load history',
+    };
   }
 }
 
-// Delete a specific scan
+/**
+ * Deletes a single scan by ID.
+ * @param {string} scanId
+ * @returns {Promise<boolean>}
+ */
 export async function deleteFromHistory(scanId) {
+  if (!scanId) return false;
+
   try {
-    const history = await AsyncStorage.getItem(HISTORY_KEY);
-    const scans = history ? JSON.parse(history) : [];
-    
-    const filtered = scans.filter(scan => scan.id !== scanId);
-    
+    const existingHistory = await AsyncStorage.getItem(HISTORY_KEY);
+    const scans = safeParseJson(existingHistory, []);
+
+    const filtered = scans.filter((scan) => scan.id !== scanId);
     await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(filtered));
-    
-    console.log('Scan deleted:', scanId);
+
+    showToast('Scan deleted');
     return true;
   } catch (error) {
-    console.error('Error deleting scan:', error);
+    if (__DEV__) {
+      console.error('[StorageService] Error deleting scan:', error);
+    }
+    showToast('Failed to delete scan');
     return false;
   }
 }
 
-// Check scans approaching 30 days and show warning
+/**
+ * Checks for scans approaching 30-day retention and auto-prunes expired scans.
+ * Scans with `backedUp: true` are exempt from auto-pruning.
+ * @returns {Promise<Array>} Scans requiring backup warnings.
+ */
 export async function checkAndWarnAboutOldScans() {
   try {
-    const history = await AsyncStorage.getItem(HISTORY_KEY);
-    const scans = history ? JSON.parse(history) : [];
-    
-    const now = new Date().getTime();
+    const existingHistory = await AsyncStorage.getItem(HISTORY_KEY);
+    const scans = safeParseJson(existingHistory, []);
+
+    const now = Date.now();
     const scansToWarn = [];
     const scansToDelete = [];
-    
-    scans.forEach(scan => {
-      const scanTime = new Date(scan.savedAt).getTime();
+
+    scans.forEach((scan) => {
+      const scanTime = new Date(scan.savedAt || scan.timestamp || now).getTime();
+      if (isNaN(scanTime)) return;
+
       const age = now - scanTime;
-      
-      // Delete if older than 30 days
-      if (age > THIRTY_DAYS) {
+
+      // Delete if older than 30 days AND not backed up
+      if (age > THIRTY_DAYS && !scan.backedUp) {
         scansToDelete.push(scan.id);
       }
-      // Warn if older than 26 days (4 days before deletion)
+      // Warn if older than 26 days (and not already backed up)
       else if (age > WARNING_BEFORE_DAYS && !scan.backedUp) {
         scansToWarn.push(scan);
       }
     });
-    
-    // Auto-delete after 30 days
+
     if (scansToDelete.length > 0) {
-      const filtered = scans.filter(scan => !scansToDelete.includes(scan.id));
+      const filtered = scans.filter((scan) => !scansToDelete.includes(scan.id));
       await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(filtered));
-      console.log('Auto-deleted old scans:', scansToDelete);
+      if (__DEV__) {
+        console.log('[StorageService] Auto-pruned expired scans:', scansToDelete.length);
+      }
     }
-    
-    // Return scans that need warning (so HistoryScreen can show alert)
+
     return scansToWarn;
-    
   } catch (error) {
-    console.error('Error checking old scans:', error);
+    if (__DEV__) {
+      console.error('[StorageService] Error checking old scans:', error);
+    }
     return [];
   }
 }
 
-// Mark scan as backed up (PDF saved)
+/**
+ * Marks a scan as backed up to prevent recurring deletion warnings.
+ * @param {string} scanId
+ * @returns {Promise<boolean>}
+ */
 export async function markAsBackedUp(scanId) {
+  if (!scanId) return false;
+
   try {
-    const history = await AsyncStorage.getItem(HISTORY_KEY);
-    const scans = history ? JSON.parse(history) : [];
-    
-    const updated = scans.map(scan => 
+    const existingHistory = await AsyncStorage.getItem(HISTORY_KEY);
+    const scans = safeParseJson(existingHistory, []);
+
+    const updated = scans.map((scan) =>
       scan.id === scanId ? { ...scan, backedUp: true } : scan
     );
-    
+
     await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
-    console.log('Marked as backed up:', scanId);
+    showToast('Marked as backed up');
     return true;
   } catch (error) {
-    console.error('Error marking backup:', error);
+    if (__DEV__) {
+      console.error('[StorageService] Error marking backup:', error);
+    }
     return false;
   }
 }
 
-// Show warning alert to user
-export function showDeleteWarningAlert(scan, onSavePress, onIgnorePress) {
-  const daysLeft = 4; // Will be deleted in 4 days
-  
-  Alert.alert(
+/**
+ * Shows an expiration warning dialog for a scan.
+ * Returns true if the user chose to save/export, false if dismissed.
+ * Dismissal does NOT mark the scan as exported.
+ *
+ * @param {object} scan
+ * @param {Function} onSavePress - Called when user chooses to save/export.
+ * @param {Function} onIgnorePress - Called when user dismisses (optional).
+ * @returns {Promise<boolean>}
+ */
+export async function showDeleteWarningAlert(scan, onSavePress, onIgnorePress) {
+  const formattedDate = new Date(scan.savedAt || scan.timestamp).toLocaleDateString();
+
+  const confirmed = await confirmAction(
     'Scan Expiring Soon',
-    `Your scan from ${new Date(scan.savedAt).toLocaleDateString()} will be deleted in ${daysLeft} days.\n\nWould you like to save it as PDF first?`,
-    [
-      {
-        text: 'Save as PDF',
-        onPress: () => onSavePress(scan),
-        style: 'default',
-      },
-      {
-        text: 'Ignore',
-        onPress: () => onIgnorePress(scan),
-        style: 'cancel',
-      },
-    ],
+    `Your scan from ${formattedDate} will be deleted in 4 days.\n\nWould you like to export/save it first?`,
+    { confirmText: 'Save / Export', cancelText: 'Dismiss' }
   );
+
+  if (confirmed) {
+    onSavePress?.(scan);
+  } else {
+    onIgnorePress?.(scan);
+  }
+
+  return confirmed;
 }
 
-// Clear all history
+/**
+ * Clears all scan history from AsyncStorage.
+ * @returns {Promise<boolean>}
+ */
 export async function clearAllHistory() {
   try {
     await AsyncStorage.removeItem(HISTORY_KEY);
-    console.log('All history cleared');
+    showToast('All scan history cleared');
     return true;
   } catch (error) {
-    console.error('Error clearing history:', error);
+    if (__DEV__) {
+      console.error('[StorageService] Error clearing history:', error);
+    }
+    showToast('Failed to clear history');
     return false;
   }
 }
 
-// Get scan count
+/**
+ * Returns the total number of saved scans.
+ * @returns {Promise<{ status: 'ok'|'error', count: number, error?: string }>}
+ */
 export async function getHistoryCount() {
   try {
-    const history = await AsyncStorage.getItem(HISTORY_KEY);
-    const scans = history ? JSON.parse(history) : [];
-    return scans.length;
+    const existingHistory = await AsyncStorage.getItem(HISTORY_KEY);
+    const scans = safeParseJson(existingHistory, []);
+    return { status: STORAGE_STATUS.OK, count: scans.length };
   } catch (error) {
-    console.error('Error getting count:', error);
-    return 0;
+    if (__DEV__) {
+      console.error('[StorageService] Error getting history count:', error);
+    }
+    return {
+      status: STORAGE_STATUS.ERROR,
+      count: 0,
+      error: error.message || 'Failed to get history count',
+    };
   }
 }

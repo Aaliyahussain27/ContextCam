@@ -10,7 +10,7 @@ export const COLORS = {
   
   // Text
   text: '#333',
-  textLight: '#999',
+  textLight: '#585858',
   textSecondary: '#666',
   
   // Borders

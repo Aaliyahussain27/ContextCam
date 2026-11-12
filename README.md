@@ -13,31 +13,39 @@ ContextCam automatically detects the type of content you're scanning and provide
 ## How It Works
 
 ```
-Capture → OCR Extract →  Auto-Detect Mode →  AI Analysis →  Save History
+Capture → OCR Extract → Auto-Detect Mode → AI Analysis → Save History / Export PDF
 ```
 
-1. **Camera:** Capture image of label/document/formula
-2. **OCR:** Extract text using Google ML Kit (on-device, instant)
-3. **Mode Detection:** Keyword matching determines Health/Legal/Academic
-4. **Analysis:** Gemini API provides contextual insights
-5. **History:** Save results locally (30-day auto-delete with warning)
+1. **Camera / Upload:** Capture image of label/document/formula or upload an image file
+2. **OCR:** 
+   - Online: Gemini Vision API (or optional backend proxy)
+   - Mobile Offline: Google ML Kit (`react-native-text-recognition` in development builds)
+   - Web Offline: Tesseract.js in-browser
+3. **Mode Detection:** Keyword heuristics (Health/Legal/Academic) with Gemini fallback for ambiguous documents
+4. **Analysis:** Gemini API contextual analysis
+5. **History & Export:** Local history (AsyncStorage) with 30-day retention warning, non-destructive backup exemptions, and native PDF generation/export (`expo-print` + `expo-sharing`)
 
 ## Tech Stack
 
 | Layer | Tech |
-|-------|------|
-| **Frontend** | React Native (Expo) |
-| **Camera** | Expo Camera | 
-| **OCR** | Firebase ML Kit |
-| **AI Analysis** | Gemini API |
-| **Storage** | AsyncStorage | 
+|---|---|
+| **Frontend** | React Native (Expo SDK 56) |
+| **Router** | Expo Router |
+| **Camera** | Expo Camera (`CameraView`) |
+| **OCR (Online)** | Google Gemini Vision API |
+| **OCR (Mobile Offline)** | Google ML Kit (`react-native-text-recognition`) |
+| **OCR (Web Offline)** | Tesseract.js |
+| **AI Analysis** | Google Gemini API |
+| **PDF Export** | `expo-print` + `expo-sharing` |
+| **Storage** | `@react-native-async-storage/async-storage` |
+| **Backend Proxy (Optional)** | Express.js (`server/`) for server-side API key protection |
 
 ## Setup
 
 ### Prerequisites
 - Node.js 18+
-- Expo CLI / Expo dependency via npm
-- Gemini API key (free)
+- Expo CLI / npm
+- Gemini API key
 
 ### Installation
 
@@ -45,65 +53,67 @@ Capture → OCR Extract →  Auto-Detect Mode →  AI Analysis →  Save History
 # Install dependencies
 npm install
 
-# Create .env file
+# Create client environment file
 echo "EXPO_PUBLIC_GEMINI_API_KEY=your_key_here" > .env
 ```
 
-### Start the app
-
-For normal local testing:
-
+*(Optional)* If using the backend proxy to keep your Gemini API key off client bundles:
 ```bash
+cd server
+npm install
+cp .env.example .env
+# Edit server/.env and add GEMINI_API_KEY=...
 npm start
+# In the client root .env:
+# EXPO_PUBLIC_API_URL=http://<your-ip>:3001
 ```
 
-For phone testing, especially when the app is not reachable over LAN, use a tunnel:
-
-```bash
-npx expo start --tunnel
-```
-
-This uses ngrok under the hood, so it works better for Expo Go on a real phone.
-
-If you want to use ngrok directly as well, run:
-
-```bash
-npx ngrok http 8081
-```
-
-Then open the forwarded URL from ngrok in your browser or use it with the Expo dev server setup as needed.
-
-## Running
+### Start the App
 
 ```bash
 # Start development server
 npm start
 
-# For a phone: use the QR code from Expo Go
-# For a tunnel-enabled phone setup: run npx expo start --tunnel
-# On web: press 'w' in the terminal
+# For web testing:
+# Press 'w' in the terminal or run:
+npx expo start --web
+
+# For native device testing:
+# In Expo Go (Cloud OCR + AI Analysis): scan the Metro QR code
+# In a development build (includes offline native ML Kit OCR):
+npx expo run:android
 ```
 
-## Key Features
+## Supported Runtimes
 
- **Auto-Mode Detection** — Identifies Health/Legal/Academic automatically  
- **Offline OCR** — Text extraction works without internet  
- **Smart Fallback** — Asks AI if uncertain about mode  
- **30-Day History** — Auto-delete with warning before deletion  
- **PDF Export** — Save results permanently before deletion  
+| Feature | Web Browser | Expo Go (Android / iOS) | Development Build (Android / iOS) |
+|---|---|---|---|
+| **Camera / Image Input** | ✅ (Camera + File Upload) | ✅ (Native Camera) | ✅ (Native Camera) |
+| **Online Gemini OCR** | ✅ | ✅ | ✅ |
+| **Offline Local OCR** | ✅ (Tesseract.js) | ⚠️ (Requires dev build) | ✅ (Google ML Kit) |
+| **AI Analysis** | ✅ | ✅ | ✅ |
+| **PDF Export** | ✅ (Browser Print / Save PDF) | ✅ (Native Share Sheet) | ✅ (Native Share Sheet) |
+| **Cross-Platform Dialogs** | ✅ (`window.confirm`) | ✅ (`Alert.alert`) | ✅ (`Alert.alert`) |
+
+## Privacy & Data Handling
+
+- **Cloud OCR**: When online, the captured image is sent directly to Google's Gemini Vision API (or through your self-hosted proxy server). Images are not retained on device or logged by the proxy server.
+- **Offline OCR**: When offline or when native ML Kit / Web Tesseract is active, image text extraction executes 100% on-device with zero network transmissions.
+- **Cloud Analysis**: Extracted text is processed via Gemini to generate contextual insights.
+- **Storage**: All scans and history entries are saved locally via `AsyncStorage`. There is no remote account or external telemetry database.
+- **30-Day Retention**: Scans older than 30 days are automatically pruned unless exported/backed up as PDF.
 
 ## Development Notes
 
-### Mode Detection Logic
-- **Health:** mg, vitamin, ingredient, tablet, dose, medicine, drug, supplement, protein, nutrient, capsule
-- **Legal:** clause, agreement, contract, shall, hereby, party, obligation, liability, breach, plaintiff, defendant
-- **Academic:** formula, equation, integral, theorem, variable, coefficient, function, derivative, proof, algorithm
+### Mode Detection Keywords
+- **Health:** `mg`, `mcg`, `ml`, `vitamin`, `ingredient`, `tablet`, `dose`, `dosage`, `medicine`, `supplement`, etc.
+- **Legal:** `clause`, `agreement`, `contract`, `shall`, `hereby`, `party`, `obligation`, `liability`, `breach`, etc.
+- **Academic:** `formula`, `equation`, `integral`, `theorem`, `variable`, `coefficient`, `function`, `derivative`, etc.
 
 ## Limitations
 
-- ⚠️ OCR accuracy depends on image quality (blurry images = poor results)
-- ⚠️ Gemini analysis limited to 60 requests/min (free tier)
-- ⚠️ No cross-device sync (data local to phone only)
-- ⚠️ Text-only analysis (images not sent to Gemini for privacy)
+- Native on-device OCR (ML Kit) requires a native development client (`npx expo run:android` / `run:ios`); Expo Go falls back to cloud Gemini OCR.
+- Free-tier Gemini API has rate limits (60 requests/minute).
+- History is local to the device / browser profile (no cloud sync).
 
 Built with ❤️ by [Aaliya Hussain](https://www.linkedin.com/in/aaliya-hussain-92194b325/)

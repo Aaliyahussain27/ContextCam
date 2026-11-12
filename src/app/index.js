@@ -1,74 +1,104 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
-import React, { useRef, useState } from 'react';
-import { ActivityIndicator, Button, Image, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Button,
+  Image,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View
+} from 'react-native';
+import { WebFilePicker } from '../components/web-file-picker';
 import { COLORS } from '../config/colors';
 import { runOCR } from '../utils/ocrService';
 import { processScan } from '../utils/processingService';
+import { setCurrentScan } from '../utils/scanResultStore';
+import { showToast } from '../utils/toast';
 
-export default function CameraScreen({ navigation }) {
+export default function CameraScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [photo, setPhoto] = useState(null);
   const [processing, setProcessing] = useState(false);
+  const [capturing, setCapturing] = useState(false);
   const cameraRef = useRef(null);
+  const isMounted = useRef(true);
   const router = useRouter();
 
-  React.useEffect(() => {
-    if (!permission?.granted) {
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (permission && !permission.granted && permission.canAskAgain) {
       requestPermission();
     }
-  }, [permission]);
+  }, [permission?.granted, permission?.canAskAgain]);
 
   const takePicture = async () => {
-    if (cameraRef.current) {
-      try {
-        const picture = await cameraRef.current.takePictureAsync();
+    if (!cameraRef.current || capturing) return;
+
+    try {
+      setCapturing(true);
+      const picture = await cameraRef.current.takePictureAsync({
+        quality: 0.7,
+        base64: true,
+      });
+
+      if (!isMounted.current) return;
+
+      if (picture?.uri && isMounted.current) {
         setPhoto(picture.uri);
-      } catch (error) {
-        console.error('Camera error:', error);
+      }
+    } catch (error) {
+      console.error('Camera capture error:', error);
+      showToast('Failed to capture photo. Try again.');
+    } finally {
+      if (isMounted.current) {
+        setCapturing(false);
       }
     }
   };
 
   const processPhoto = async () => {
-    if (!photo) return;
+    if (!photo || processing) return;
 
     setProcessing(true);
     try {
-      // Step 1: Extract text from image
+      // Step 1: Extract text via OCR
       const ocrResult = await runOCR(photo);
 
-      if (!ocrResult.success || !ocrResult.text || ocrResult.text.trim().length === 0) {
-        alert('Could not extract text from image. Try a clearer photo.');
-        setProcessing(false);
+      if (!ocrResult?.success || !ocrResult.text || ocrResult.text.trim().length === 0) {
+        showToast(ocrResult?.error || 'No readable text found in image');
+        if (isMounted.current) setProcessing(false);
         return;
       }
 
-      // Step 2: Process through mode detection + Gemini
+      // Step 2: Process through mode detection + Gemini AI
       const scanResult = await processScan(ocrResult.text);
 
-      setProcessing(false);
-
-      if (!scanResult.success && scanResult.error === 'No internet connection') {
-        alert('Analysis requires internet. OCR text only available offline.');
+      if (isMounted.current) {
+        setProcessing(false);
+        setPhoto(null);
       }
 
-      // Step 3: Navigate to result screen
-    router.push({
-      pathname: '/result',
-      params: { result: JSON.stringify(scanResult) }
-    });
-      // Reset camera
-      setPhoto(null);
-
+      setCurrentScan(scanResult);
+      router.push('/result');
     } catch (error) {
       console.error('Processing error:', error);
-      alert('Error processing image: ' + error.message);
-      setProcessing(false);
+      showToast(error.message || 'Error processing image');
+      if (isMounted.current) {
+        setProcessing(false);
+      }
     }
   };
 
-  if (!permission?.granted) {
+  if (!permission?.granted && Platform.OS !== 'web') {
     return (
       <View style={styles.container}>
         <Text style={styles.errorText}>Camera permission required</Text>
@@ -86,32 +116,40 @@ export default function CameraScreen({ navigation }) {
     <View style={styles.container}>
       {photo ? (
         <>
-          <Image source={{ uri: photo }} style={styles.image} />
+          <Image source={{ uri: photo }} style={styles.image} resizeMode="contain" />
           {processing ? (
             <View style={styles.processingOverlay}>
               <ActivityIndicator size="large" color={COLORS.primary} />
-              <Text style={styles.processingText}>Extracting text...</Text>
-              <Text style={styles.processingSubtext}>This usually takes 2-3 seconds</Text>
+              <Text style={styles.processingText}>Analyzing document...</Text>
+              <Text style={styles.processingSubtext}>Extracting text and generating insights</Text>
             </View>
           ) : (
             <View style={styles.buttonRow}>
-              <Button
-                title="Process"
-                onPress={processPhoto}
-                color={COLORS.primary}
-              />
-              <Button
-                title="Retake"
-                onPress={() => setPhoto(null)}
-                color={COLORS.accent}
-              />
+              <Button title="Process" onPress={processPhoto} color={COLORS.primary} />
+              <Button title="Retake" onPress={() => setPhoto(null)} color={COLORS.accent} />
             </View>
           )}
         </>
       ) : (
         <>
-          <CameraView ref={cameraRef} style={styles.camera} />
-          <Button title="Capture" onPress={takePicture} color={COLORS.primary} />
+          <CameraView ref={cameraRef} style={styles.camera} facing="back" />
+          <View style={styles.captureControls}>
+            <Pressable
+              style={[styles.captureButton, capturing && styles.captureButtonDisabled]}
+              onPress={takePicture}
+              disabled={capturing}
+            >
+              <Text style={styles.captureButtonText}>
+                {capturing ? 'Capturing...' : 'Capture Photo'}
+              </Text>
+            </Pressable>
+            <WebFilePicker
+              disabled={capturing}
+              onSelect={(dataUri) => {
+                if (isMounted.current) setPhoto(dataUri);
+              }}
+            />
+          </View>
         </>
       )}
     </View>
@@ -122,24 +160,43 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: 'center',
-    backgroundColor: '#fff',
-    position: 'relative'
+    backgroundColor: '#000',
+    position: 'relative',
   },
   camera: { flex: 1 },
-  image: { width: '100%', height: '70%' },
+  image: { width: '100%', height: '70%', backgroundColor: '#000' },
   buttonRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     padding: 16,
-    gap: 10
+    backgroundColor: '#fff',
+    gap: 10,
+  },
+  captureControls: {
+    padding: 16,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    alignItems: 'center',
+    gap: 10,
+  },
+  captureButton: {
+    backgroundColor: COLORS.primary,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 8,
+    width: '90%',
+    alignItems: 'center',
+  },
+  captureButtonDisabled: {
+    opacity: 0.6,
+  },
+  captureButtonText: {
+    color: COLORS.secondary,
+    fontWeight: '700',
+    fontSize: 15,
   },
   processingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.75)',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 100,
