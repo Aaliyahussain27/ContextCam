@@ -84,17 +84,6 @@ npx expo start --web
 npx expo run:android
 ```
 
-## Supported Runtimes
-
-| Feature | Web Browser | Expo Go (Android / iOS) | Development Build (Android / iOS) |
-|---|---|---|---|
-| **Camera / Image Input** | ✅ (Camera + File Upload) | ✅ (Native Camera) | ✅ (Native Camera) |
-| **Online Gemini OCR** | ✅ | ✅ | ✅ |
-| **Offline Local OCR** | ✅ (Tesseract.js) | ⚠️ (Requires dev build) | ✅ (Google ML Kit) |
-| **AI Analysis** | ✅ | ✅ | ✅ |
-| **PDF Export** | ✅ (Browser Print / Save PDF) | ✅ (Native Share Sheet) | ✅ (Native Share Sheet) |
-| **Cross-Platform Dialogs** | ✅ (`window.confirm`) | ✅ (`Alert.alert`) | ✅ (`Alert.alert`) |
-
 ## Privacy & Data Handling
 
 - **Cloud OCR**: When online, the captured image is sent directly to Google's Gemini Vision API (or through your self-hosted proxy server). Images are not retained on device or logged by the proxy server.
